@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.0",
   "main": "electron/main.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
