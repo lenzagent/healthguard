@@ -43,10 +43,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build Next.js (static export)
+      - name: Build Next.js
         run: pnpm build
-        env:
-          CAPACITOR_BUILD: '1'
 
       - name: Build Windows installer
         run: pnpm exec electron-builder --win --x64
@@ -94,10 +92,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build Next.js (static export)
+      - name: Build Next.js
         run: pnpm build
-        env:
-          CAPACITOR_BUILD: '1'
 
       - name: Build macOS DMG
         run: pnpm exec electron-builder --mac --x64 --arm64
@@ -148,10 +144,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build Next.js (static export)
+      - name: Build Next.js
         run: pnpm build
-        env:
-          CAPACITOR_BUILD: '1'
 
       - name: Build Linux packages
         run: pnpm exec electron-builder --linux --x64
