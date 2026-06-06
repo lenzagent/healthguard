@@ -2,6 +2,7 @@
   "name": "healthguard-app",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@9.15.0",
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
