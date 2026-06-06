@@ -1,0 +1,153 @@
+{
+  "name": "healthguard-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "NODE_ENV=development vitest run",
+    "test:watch": "NODE_ENV=development vitest",
+    "test:coverage": "NODE_ENV=development vitest run --coverage",
+    "test:e2e": "NODE_ENV=development playwright test",
+    "test:e2e:ui": "NODE_ENV=development playwright test --ui",
+    "test:all": "NODE_ENV=development vitest run --coverage && playwright test",
+    "electron:dev": "NODE_ENV=development electron .",
+    "electron:build": "pnpm build && electron-builder",
+    "electron:build:win": "pnpm build && electron-builder --win",
+    "electron:build:mac": "pnpm build && electron-builder --mac",
+    "electron:build:linux": "pnpm build && electron-builder --linux",
+    "electron:build:all": "pnpm build && electron-builder --win --mac --linux"
+  },
+  "build": {
+    "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+    "appId": "com.healthguard.ai",
+    "productName": "HealthGuard AI",
+    "directories": {
+      "output": "release",
+      "buildResources": "public"
+    },
+    "files": [
+      "electron/**/*",
+      ".next/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "prisma",
+        "to": "prisma",
+        "filter": ["*.prisma", "*.sql"]
+      }
+    ],
+    "asar": true,
+    "compression": "maximum",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon-512.png",
+      "sign": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HealthGuard AI",
+      "installerIcon": "public/icon-512.png",
+      "uninstallerIcon": "public/icon-512.png",
+      "installerHeaderIcon": "public/icon-512.png",
+      "license": "LICENSE",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/icon-512.png",
+      "category": "public.app-category.healthcare-fitness",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": {
+        "teamId": "${APPLE_TEAM_ID}"
+      }
+    },
+    "dmg": {
+      "title": "HealthGuard AI Installer",
+      "icon": "public/icon-512.png",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon-512.png",
+      "category": "Science",
+      "synopsis": "AI-powered health monitoring platform",
+      "description": "HealthGuard AI monitors your health data, provides AI-driven insights, and alerts you to anomalies in real time."
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "draft"
+    }
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.3",
+    "nanoid": "^3.3.12",
+    "next": "16.2.7",
+    "prisma": "^7.8.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "@capacitor/android": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/cli": "^7.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@prisma/engines": "^7.8.0",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.8",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.7",
+    "jsdom": "^29.1.1",
+    "lighthouse": "^13.3.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5",
+    "vitest": "^4.1.8",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}

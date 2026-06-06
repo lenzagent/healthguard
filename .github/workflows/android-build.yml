@@ -1,0 +1,88 @@
+name: Android APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      buildType:
+        description: 'Build type'
+        required: true
+        type: choice
+        options:
+          - debug
+          - release
+        default: 'debug'
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'src/**'
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js static export
+        run: pnpm build
+        env:
+          CAPACITOR_BUILD: '1'
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build APK (Debug)
+        if: github.event.inputs.buildType == 'debug' || github.event_name == 'push'
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Build APK (Release)
+        if: github.event.inputs.buildType == 'release'
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          APK_PATH=$(find android -name "*.apk" -type f | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "✗ No APK found"
+            exit 1
+          fi
+          APK_SIZE=$(du -sm "$APK_PATH" | cut -f1)
+          echo "APK: $APK_PATH (${APK_SIZE}MB)"
+          if [ "$APK_SIZE" -gt 500 ]; then
+            echo "✗ APK size ${APK_SIZE}MB exceeds 500MB limit"
+            exit 1
+          fi
+          echo "✓ APK size within 500MB limit"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthguard-apk-${{ github.event.inputs.buildType || 'debug' }}
+          path: android/**/build/outputs/apk/**/*.apk
+          retention-days: 7

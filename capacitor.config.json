@@ -1,0 +1,16 @@
+{
+  "appId": "com.healthguard.ai",
+  "appName": "HealthGuard",
+  "webDir": "out",
+  "server": {
+    "url": "http://192.168.31.245:3000",
+    "cleartext": true
+  },
+  "plugins": {
+    "Camera": {
+      "androidPermissions": [
+        "android.permission.CAMERA"
+      ]
+    }
+  }
+}

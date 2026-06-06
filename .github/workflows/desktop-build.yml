@@ -1,0 +1,235 @@
+name: HealthGuard Desktop Packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform(s)'
+        required: true
+        type: choice
+        options:
+          - all
+          - win
+          - mac
+          - linux
+        default: 'all'
+  push:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'package.json'
+      - 'src/**'
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Windows (NSIS installer) ──
+  build-windows:
+    name: Windows NSIS Installer
+    if: github.event.inputs.platform == 'win' || github.event.inputs.platform == 'all' || github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js (static export)
+        run: pnpm build
+        env:
+          CAPACITOR_BUILD: '1'
+
+      - name: Build Windows installer
+        run: pnpm exec electron-builder --win --x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify NSIS installer
+        shell: bash
+        run: |
+          INSTALLER=$(find release -name "*.exe" -type f | head -1)
+          if [ -z "$INSTALLER" ]; then
+            echo "✗ No NSIS installer found"
+            exit 1
+          fi
+          SIZE=$(du -sm "$INSTALLER" | cut -f1)
+          echo "NSIS installer: $INSTALLER (${SIZE}MB)"
+          if [ "$SIZE" -gt 500 ]; then
+            echo "✗ Installer size ${SIZE}MB exceeds 500MB limit"
+            exit 1
+          fi
+          echo "✓ Windows installer verified (${SIZE}MB)"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthGuard-Windows-x64
+          path: release/*.exe
+          retention-days: 7
+
+  # ── macOS (DMG + notarization) ──
+  build-macos:
+    name: macOS DMG
+    if: github.event.inputs.platform == 'mac' || github.event.inputs.platform == 'all' || github.event_name == 'push'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js (static export)
+        run: pnpm build
+        env:
+          CAPACITOR_BUILD: '1'
+
+      - name: Build macOS DMG
+        run: pnpm exec electron-builder --mac --x64 --arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Verify DMG
+        shell: bash
+        run: |
+          DMG=$(find release -name "*.dmg" -type f | head -1)
+          if [ -z "$DMG" ]; then
+            echo "✗ No DMG found"
+            exit 1
+          fi
+          SIZE=$(du -sm "$DMG" | cut -f1)
+          echo "DMG: $DMG (${SIZE}MB)"
+          if [ "$SIZE" -gt 500 ]; then
+            echo "✗ DMG size ${SIZE}MB exceeds 500MB limit"
+            exit 1
+          fi
+          echo "✓ macOS DMG verified (${SIZE}MB)"
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthGuard-macOS
+          path: release/*.dmg
+          retention-days: 7
+
+  # ── Linux (AppImage + .deb) ──
+  build-linux:
+    name: Linux AppImage + deb
+    if: github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js (static export)
+        run: pnpm build
+        env:
+          CAPACITOR_BUILD: '1'
+
+      - name: Build Linux packages
+        run: pnpm exec electron-builder --linux --x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Linux packages
+        shell: bash
+        run: |
+          APPIMAGE=$(find release -name "*.AppImage" -type f | head -1)
+          DEB=$(find release -name "*.deb" -type f | head -1)
+
+          if [ -n "$APPIMAGE" ]; then
+            SIZE=$(du -sm "$APPIMAGE" | cut -f1)
+            echo "AppImage: $APPIMAGE (${SIZE}MB)"
+            [ "$SIZE" -gt 500 ] && echo "✗ AppImage too large" && exit 1
+            echo "✓ AppImage verified"
+          else
+            echo "✗ No AppImage found"
+            exit 1
+          fi
+
+          if [ -n "$DEB" ]; then
+            SIZE=$(du -sm "$DEB" | cut -f1)
+            echo "deb: $DEB (${SIZE}MB)"
+            [ "$SIZE" -gt 500 ] && echo "✗ deb too large" && exit 1
+            echo "✓ deb verified"
+          else
+            echo "⚠ No .deb found (non-critical)"
+          fi
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthGuard-Linux-x64
+          path: |
+            release/*.AppImage
+            release/*.deb
+          retention-days: 7
+
+  # ── Summary ──
+  summary:
+    name: Build Summary
+    needs: [build-windows, build-macos, build-linux]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report results
+        run: |
+          echo "## Desktop Packaging Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.build-windows.result }}" = "success" ]; then
+            echo "✅ Windows NSIS installer — passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.build-windows.result }}" = "skipped" ]; then
+            echo "⏭️ Windows — skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Windows NSIS installer — failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.build-macos.result }}" = "success" ]; then
+            echo "✅ macOS DMG — passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.build-macos.result }}" = "skipped" ]; then
+            echo "⏭️ macOS — skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ macOS DMG — failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.build-linux.result }}" = "success" ]; then
+            echo "✅ Linux AppImage + deb — passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.build-linux.result }}" = "skipped" ]; then
+            echo "⏭️ Linux — skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Linux AppImage + deb — failed" >> $GITHUB_STEP_SUMMARY
+          fi

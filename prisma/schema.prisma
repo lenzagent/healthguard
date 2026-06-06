@@ -1,0 +1,271 @@
+// HealthGuard Prisma Schema
+// PostgreSQL - PIPL-compliant data architecture
+// All health data encrypted at rest with AES-256-GCM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── User & Authentication ───────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  phone         String?  @unique // Mobile phone number (+86 format)
+  wechatOpenId  String?  @unique // WeChat OpenID
+  wechatUnionId String?  @unique // WeChat UnionID (cross-platform)
+  nickname      String?
+  avatarUrl     String?
+
+  // PIPL consent tracking
+  privacyConsentGiven    Boolean  @default(false)
+  privacyConsentAt       DateTime?
+  dataProcessingConsent  Boolean  @default(false)
+  dataProcessingConsentAt DateTime?
+  consentVersion         String?  // Version of consent document agreed to
+
+  // Account status
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  sessions           Session[]
+  verificationCodes  VerificationCode[]
+  healthRecords      HealthRecord[]
+  auditLogs          AuditLog[]
+  consentRecords     ConsentRecord[]
+  reports            Report[]
+  reportConsents     ReportConsent[]
+  deviceConnections  DeviceConnection[]
+  syncJobs           SyncJob[]
+
+  @@index([phone])
+  @@index([wechatOpenId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique // JWT token jti (unique identifier)
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  revokedAt    DateTime?
+  ipAddress    String?
+  userAgent    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([refreshToken])
+}
+
+model VerificationCode {
+  id        String   @id @default(cuid())
+  userId    String
+  phone     String
+  code      String
+  purpose   String   // "login" | "register" | "bind"
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([phone, code])
+  @@index([expiresAt])
+}
+
+// ─── Health Data ─────────────────────────────────────────────────────
+
+model HealthRecord {
+  id            String   @id @default(cuid())
+  userId        String
+  dataType      String   // heart_rate, blood_pressure, spo2, steps, sleep, weight, blood_glucose, temperature, ecg
+  encryptedData String   // AES-256-GCM encrypted JSON blob
+  iv            String   // Initialization vector for AES-GCM
+  authTag       String   // Authentication tag for AES-GCM
+  source        String   // "apple_health" | "huawei_health" | "xiaomi" | "manual" | "rPPG"
+  recordedAt    DateTime // When the measurement was taken (from device)
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dataType])
+  @@index([userId, recordedAt])
+  @@index([recordedAt])
+}
+
+// ─── Audit & Compliance ──────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String   // "data_access", "data_export", "data_delete", "login", "consent_change", "api_call"
+  resource   String   // Which resource was accessed
+  resourceId String?  // Specific resource ID
+  details    String?  // Additional context (JSON)
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model ConsentRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  consentType String   // "privacy_policy" | "data_processing" | "health_data_collection" | "third_party_share"
+  granted     Boolean
+  version     String   // Document version
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consentType])
+}
+
+// ─── Health Score ────────────────────────────────────────────────────
+
+model HealthScoreRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  overall   Float    // 0-100 composite score
+  factors   String   // JSON: array of {name, score, maxScore, color}
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ─── M1: Device Connections & Sync ────────────────────────────────────
+
+model DeviceConnection {
+  id          String   @id @default(cuid())
+  userId      String
+  brandId     String   // "apple" | "huawei" | "xiaomi" | "oppo" | "vivo" | "google"
+  brandName   String   // Display name "Apple Health", "华为运动健康", etc.
+  connected   Boolean  @default(true)
+  enabledDataTypes String[] @default([]) // Array of SyncDataType keys
+
+  // Sync state
+  lastSyncAt  DateTime?
+  syncStatus  String   @default("idle") // "idle" | "syncing" | "success" | "error"
+  syncProgress Int     @default(0)     // 0-100
+  syncedDays  Int      @default(0)     // How many days of data pulled
+  totalDays   Int      @default(30)    // Target sync days
+  syncError   String?                  // Last error message
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncJobs SyncJob[]
+
+  @@unique([userId, brandId])
+  @@index([userId])
+  @@index([syncStatus])
+}
+
+model SyncJob {
+  id          String   @id @default(cuid())
+  userId      String
+  deviceId    String   // FK to DeviceConnection
+  status      String   // "pending" | "in_progress" | "completed" | "failed"
+  progress    Int      @default(0)    // 0-100
+  syncedDays  Int      @default(0)
+  totalDays   Int      @default(30)
+  recordsCreated Int   @default(0)    // How many HealthRecords created
+  errorMessage String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device DeviceConnection @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([deviceId])
+  @@index([status])
+}
+
+// ─── S1: Medical Reports ──────────────────────────────────────────────
+
+model Report {
+  id            String   @id @default(cuid())
+  userId        String
+  title         String   // e.g. "2025年度体检报告"
+  examDate      DateTime // Date of the actual medical exam
+  hospital      String?  // Hospital/clinic name
+  ocrAccuracy   Float?   // 0-100 OCR confidence score
+  thumbnailUrl  String?  // URL to thumbnail of first page
+  fileType      String   // "image/jpeg" | "image/png" | "application/pdf"
+  fileSize      Int      // File size in bytes
+  pageCount     Int      @default(1)
+  encryptedData String   // AES-256-GCM encrypted JSON: full OCR output
+  iv            String   // Initialization vector
+  authTag       String   // Authentication tag
+  aiSummary     String?  // AI-generated overall interpretation
+  aiRecommendations String? // JSON array of AI recommendations
+  wearableCorrelationSummary String? // AI-generated wearable correlation
+  status        String   @default("processing") // "processing" | "ready" | "error"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  indicators  ReportIndicator[]
+  consents    ReportConsent[]
+
+  @@index([userId, examDate])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model ReportIndicator {
+  id          String  @id @default(cuid())
+  reportId    String
+  name        String  // Chinese name
+  nameEn      String  // English name
+  value       String  // e.g. "5.6 ↑" or "阴性(-)"
+  numericValue Float? // Parsed numeric value for comparison
+  range       String  // Normal range description
+  unit        String? // Unit of measurement
+  status      String  // "normal" | "borderline" | "abnormal"
+  category    String  // Category ID (blood-routine, lipids, etc.)
+  interpretation      String? // AI plain-language interpretation
+  wearableCorrelation String? // Correlation with wearable data
+  recommendation      String? // AI recommendation for this indicator
+  sortOrder   Int     @default(0)
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([reportId, category])
+}
+
+model ReportConsent {
+  id          String   @id @default(cuid())
+  reportId    String
+  userId      String
+  consentType String   // "ocr-processing" | "ai-analysis" | "data-storage" | "wearable-correlation"
+  granted     Boolean
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+  withdrawnAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, consentType])
+  @@index([userId])
+}
